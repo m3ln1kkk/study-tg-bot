@@ -10,6 +10,8 @@ import (
 type dataCoinPrice struct {
 	Bitcoin  string
 	Ethereum string
+	BNB      string
+	Tron     string
 }
 
 func general(w http.ResponseWriter, r *http.Request) {
