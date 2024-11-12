@@ -1,94 +1,98 @@
 package main
 
 import (
-	"html/template"
+	"encoding/json"
+
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"time"
+
+	"github.com/joho/godotenv"
 )
 
-// Обработать и сделать вывод, типизировать ошибки
+type cryptoCurrency string
+type fiatCurrency string
 
-// что делает?
-type dataCoinPrice struct {
-	Bitcoin  string
-	Ethereum string
-	BNB      string
-	Tron     string
+const (
+	Bitcoin  cryptoCurrency = "bitcoin"
+	Ethereum cryptoCurrency = "ethereum"
+	Tron     cryptoCurrency = "tron"
+)
+
+const (
+	USD fiatCurrency = "usd"
+	EUR fiatCurrency = "eur"
+)
+
+type listCrypto struct {
+	Bitcoin struct {
+		USD float64 `json:"usd"`
+		EUR float64 `json:"eur"`
+	} `json:"bitcoin"`
+	Ethereum struct {
+		USD float64 `json:"usd"`
+		EUR float64 `json:"eur"`
+	} `json:"ethereum"`
+	Tron struct {
+		USD float64 `json:"usd"`
+		EUR float64 `json:"eur"`
+	} `json:"tron"`
 }
 
-// нейминг функций??
-func general(w http.ResponseWriter, r *http.Request) {
-	// нейминг??
-	dataCoinPrice := dataCoinPrice{
-		Bitcoin:  getPrice("bitcoin", "usd"),
-		Ethereum: getPrice("ethereum", "usd"),
+var DataCur listCrypto //variable to store the currency data
+
+func checkErr(message string, err error) {
+	if err != nil {
+		log.Fatal(message, err)
 	}
-	// обработать
-	// нейминг как из пакета ??
-	template, _ := template.ParseFiles("general.html")
-
-	// обработать
-	template.Execute(w, dataCoinPrice)
 }
 
-// Что за нейминг переменных? | А какие валюты доступны?? | enum -> посмотреть что это такое как это реализовать в go
-func getPrice(coin string, cur string) string {
-	url := "https://api.coingecko.com/api/v3/simple/price?ids=" + coin + "&vs_currencies=" + cur
+var Client *http.Client
 
-	req, _ := http.NewRequest("GET", url, nil)
+func init() {
+	Client = &http.Client{
+		Timeout: 10 * time.Second,
+	}
+}
 
-	req.Header.Add("accept", "application/json")                      // вынести в отдельный клиент
-	req.Header.Add("x-cg-pro-api-key", "CG-2qGpqEPGVxfrCu5PCSTKj1Rk") // вынести в отдельный клиент
+func display(w http.ResponseWriter, r *http.Request) {
+	getConversionCurrency(Bitcoin, USD)
+	getConversionCurrency(Ethereum, EUR)
+	getConversionCurrency(Tron, EUR)
 
-	// обработать
-	res, _ := http.DefaultClient.Do(req) // перепиши на go доку
+	jsonData, err := json.Marshal(DataCur)
+	checkErr("ошибка при конвертации json", err)
+	w.Write(jsonData)
+}
+
+func getConversionCurrency(inCoin cryptoCurrency, outCoin fiatCurrency) {
+	url := "https://api.coingecko.com/api/v3/simple/price?ids=" + string(inCoin) + "&vs_currencies=" + string(outCoin)
+
+	req, err := http.NewRequest("GET", url, nil)
+	checkErr("ошибка при создании запроса", err)
+
+	req.Header.Add("accept", "application/json")
+	req.Header.Add("x-cg-pro-api-key", string(os.Getenv("xCgProApiKey")))
+
+	res, err := Client.Do(req)
+	checkErr("ошибка при выполнении запроса", err)
 	defer res.Body.Close()
 
-	// обработать
-	textRes, _ := io.ReadAll(res.Body)
-	return string(textRes)
-}
+	body, err := io.ReadAll(res.Body)
+	checkErr("ошибка при чтении ответа", err)
 
-// Структура, которая будет сериализована в JSON
-//type Response struct {
-//	Message string `json:"message"`
-//	Status  int    `json:"status"`
-//}
-//
-//func jsonHandler(w http.ResponseWriter, r *http.Request) {
-//	// Проверяем, что это метод GET
-//	if r.Method != http.MethodGet {
-//		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-//		return
-//	}
-//
-//	// Создаем объект ответа
-//	response := Response{
-//		Message: "Hello, this is a JSON response!",
-//		Status:  http.StatusOK,
-//	}
-//
-//	// Устанавливаем заголовок Content-Type
-//	w.Header().Set("Content-Type", "application/json")
-//	w.WriteHeader(http.StatusOK)
-//
-//	// Кодируем объект в JSON и отправляем клиенту
-//	err := json.NewEncoder(w).Encode(response)
-//	if err != nil {
-//		http.Error(w, "Ошибка при создании JSON", http.StatusInternalServerError)
-//	}
-//}
+	err = json.Unmarshal(body, &DataCur)
+	checkErr("ошибка при парсинге JSON", err)
+}
 
 func main() {
 
-	http.HandleFunc("/", general)
-	//http.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
-	//	log.Printf("%s %s", r.Method, r.URL)
-	//	w.Write([]byte("Hello from /hello route!")) // Добавляем ответ для маршрута /hello
-	//})
-	//http.HandleFunc("/json", jsonHandler)
+	err := godotenv.Load() //reading env
+	checkErr("ошибка при прочтении переменных окружения", err)
 
-	log.Println("Server is running on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	http.HandleFunc("/", display)
+	log.Fatal(http.ListenAndServe(":8092", nil))
+
 }
