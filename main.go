@@ -1,13 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -49,18 +49,47 @@ func checkErr(message string, err error) {
 	}
 }
 
-var Client *http.Client
+type Client struct {
+	BaseURL    string
+	HTTPClient *http.Client
+	Headers    map[string]string
+}
+
+var client *Client
+
+func newClient(baseURL string, headers map[string]string) *Client {
+	return &Client{
+		BaseURL:    baseURL,
+		HTTPClient: &http.Client{},
+		Headers:    headers,
+	}
+}
+
+func (c *Client) DoRequest(method, route string, body []byte) (*http.Response, error) {
+	url := c.BaseURL + route
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+	checkErr("ошибка при создании запроса ", err)
+
+	for key, value := range c.Headers {
+		req.Header.Set(key, value)
+	}
+
+	return c.HTTPClient.Do(req)
+}
 
 func init() {
-	Client = &http.Client{
-		Timeout: 10 * time.Second,
+	headers := map[string]string{
+		"x-cg-pro-api-key": string(os.Getenv("xCgProApiKey")),
+		"accept":           "application/json",
 	}
+	client = newClient("https://api.coingecko.com/api/v3", headers)
 }
 
 func display(w http.ResponseWriter, r *http.Request) {
 	getConversionCurrency(Bitcoin, USD)
 	getConversionCurrency(Ethereum, EUR)
 	getConversionCurrency(Tron, EUR)
+	getConversionCurrency("tronn", EUR)
 
 	jsonData, err := json.Marshal(DataCur)
 	checkErr("ошибка при конвертации json", err)
@@ -68,16 +97,10 @@ func display(w http.ResponseWriter, r *http.Request) {
 }
 
 func getConversionCurrency(inCoin cryptoCurrency, outCoin fiatCurrency) {
-	url := "https://api.coingecko.com/api/v3/simple/price?ids=" + string(inCoin) + "&vs_currencies=" + string(outCoin)
+	route := "/simple/price?" + "ids=" + string(inCoin) + "&vs_currencies=" + string(outCoin)
 
-	req, err := http.NewRequest("GET", url, nil)
-	checkErr("ошибка при создании запроса", err)
-
-	req.Header.Add("accept", "application/json")
-	req.Header.Add("x-cg-pro-api-key", string(os.Getenv("xCgProApiKey")))
-
-	res, err := Client.Do(req)
-	checkErr("ошибка при выполнении запроса", err)
+	res, err := client.DoRequest("GET", route, nil)
+	checkErr("ошибка при выполненииtest запроса", err)
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
